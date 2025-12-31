@@ -339,10 +339,9 @@ export default function App() {
             </div>
             <button 
               onClick={() => fetchData(user)}
-              className="p-2.5 md:p-3 bg-slate-50 text-slate-400 hover:text-sky-50 hover:bg-sky-50 rounded-xl transition-all active:scale-90"
+              className="p-2.5 md:p-3 bg-slate-50 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-xl transition-all active:scale-90"
               title="Refresh"
             >
-              {/* Fix: Merged duplicate className attributes */}
               <RefreshCcw size={16} className={`md:w-[18px] md:h-[18px] ${isLoading ? 'animate-spin' : ''}`} strokeWidth={2.5} />
             </button>
             <button 
@@ -445,29 +444,31 @@ export default function App() {
           )}
         </div>
 
-        {/* Footer Navigation */}
-        <footer className="px-5 md:px-8 py-4 md:py-6 border-t border-slate-50 flex justify-between items-center bg-white shrink-0">
+        {/* Footer Navigation - Updated with Next/Previous Buttons */}
+        <footer className="px-6 md:px-12 py-6 border-t border-slate-50 flex justify-between items-center bg-white shrink-0 relative">
           <button 
             disabled={currentPage <= 1 || syncError}
             onClick={() => setCurrentPage(prev => prev - 1)}
-            className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2.5 md:py-3 bg-slate-50 text-slate-500 hover:text-slate-900 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-widest rounded-xl md:rounded-2xl transition-all active:scale-95"
+            className="flex items-center gap-3 px-5 py-3 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-2xl transition-all active:scale-95"
           >
-            <ChevronLeft size={14} className="md:w-4 md:h-4" strokeWidth={3} /> <span className="hidden xs:inline">Prev</span>
+            <ChevronLeft size={16} strokeWidth={3} />
+            <span>PREVIOUS</span>
           </button>
           
           <div className="flex flex-col items-center">
-            <span className="text-[0.65rem] md:text-[0.7rem] font-black text-slate-900 tracking-[0.2em] md:tracking-[0.3em] uppercase">
+            <span className="text-[0.8rem] md:text-[0.9rem] font-bold text-slate-800 tracking-[0.2em] uppercase">
               {currentPage} / {totalPages}
             </span>
-            <div className="text-[0.4rem] md:text-[0.45rem] font-black text-slate-300 uppercase mt-0.5 md:mt-1 tracking-[0.2em]">Archive</div>
+            <div className="text-[0.5rem] md:text-[0.55rem] font-black text-slate-300 uppercase tracking-[0.3em] mt-0.5">Archive</div>
           </div>
 
           <button 
             disabled={currentPage >= totalPages || syncError}
             onClick={() => setCurrentPage(prev => prev + 1)}
-            className="flex items-center gap-2 md:gap-3 px-3 md:px-5 py-2.5 md:py-3 bg-slate-50 text-slate-500 hover:text-slate-900 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-widest rounded-xl md:rounded-2xl transition-all active:scale-95"
+            className="flex items-center gap-3 px-5 py-3 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-2xl transition-all active:scale-95"
           >
-            <span className="hidden xs:inline">Next</span> <ChevronRight size={14} className="md:w-4 md:h-4" strokeWidth={3} />
+            <span>NEXT</span>
+            <ChevronRight size={16} strokeWidth={3} />
           </button>
         </footer>
 

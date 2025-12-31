@@ -492,31 +492,31 @@ export default function App() {
           )}
         </div>
 
-        {/* Footer Navigation */}
-        <footer className="px-6 md:px-12 py-6 border-t border-slate-50 flex justify-between items-center bg-white shrink-0 relative">
+        {/* Footer Navigation - Compact layout */}
+        <footer className="px-6 md:px-12 py-3 border-t border-slate-50 flex justify-between items-center bg-white shrink-0 relative min-h-[70px]">
           <button 
             disabled={currentPage <= 1 || syncError}
             onClick={() => setCurrentPage(prev => prev - 1)}
-            className="flex items-center gap-3 px-5 py-3 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-2xl transition-all active:scale-95"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-xl transition-all active:scale-95"
           >
-            <ChevronLeft size={16} strokeWidth={3} />
+            <ChevronLeft size={14} strokeWidth={3} />
             <span>PREVIOUS</span>
           </button>
           
-          <div className="flex flex-col items-center">
-            <span className="text-[0.8rem] md:text-[0.9rem] font-bold text-slate-800 tracking-[0.2em] uppercase">
+          <div className="flex flex-col items-center justify-center">
+            <span className="text-[0.75rem] md:text-[0.85rem] font-bold text-slate-800 tracking-[0.2em] uppercase leading-none">
               {currentPage} / {totalPages}
             </span>
-            <div className="text-[0.5rem] md:text-[0.55rem] font-black text-slate-300 uppercase tracking-[0.3em] mt-0.5">Archive</div>
+            <div className="text-[0.45rem] md:text-[0.5rem] font-black text-slate-300 uppercase tracking-[0.3em] mt-1">Archive</div>
           </div>
 
           <button 
             disabled={currentPage >= totalPages || syncError}
             onClick={() => setCurrentPage(prev => prev + 1)}
-            className="flex items-center gap-3 px-5 py-3 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-2xl transition-all active:scale-95"
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 text-slate-400 hover:text-slate-900 hover:bg-slate-100 disabled:opacity-20 disabled:cursor-not-allowed text-[0.6rem] md:text-[0.65rem] font-black uppercase tracking-[0.2em] rounded-xl transition-all active:scale-95"
           >
             <span>NEXT</span>
-            <ChevronRight size={16} strokeWidth={3} />
+            <ChevronRight size={14} strokeWidth={3} />
           </button>
         </footer>
 

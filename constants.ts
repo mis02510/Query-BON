@@ -37,4 +37,4 @@ export const STEPS: Step[] = [
   { n: "Issue Status", p: 25, a: 26, s: 27, d: 28 }
 ];
 
-export const ROWS_PER_PAGE = 15;
+export const ROWS_PER_PAGE = 5;

@@ -24,7 +24,8 @@ import {
   User as UserIcon,
   Search,
   ArrowRight,
-  WifiOff
+  WifiOff,
+  Filter
 } from 'lucide-react';
 
 // --- Shared UI Components ---
@@ -132,6 +133,7 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClientFilter, setSelectedClientFilter] = useState('all');
 
   // --- Core Logic ---
 
@@ -223,15 +225,36 @@ export default function App() {
     setData([]);
     setLoginForm({ name: '', key: '' }); 
     setShowLogoutConfirm(false);
+    setSelectedClientFilter('all');
   };
 
+  const uniqueClients = useMemo(() => {
+    const clients = new Set<string>();
+    data.forEach(row => {
+      const name = (row[2] || '').trim();
+      if (name) clients.add(name);
+    });
+    return Array.from(clients).sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
   const filteredData = useMemo(() => {
-    if (!searchQuery) return data;
-    const q = searchQuery.toLowerCase();
-    return data.filter(row => 
-      row.some(cell => cell.toLowerCase().includes(q))
-    );
-  }, [data, searchQuery]);
+    let result = data;
+    
+    // Client Dropdown Filter
+    if (selectedClientFilter !== 'all') {
+      result = result.filter(row => (row[2] || '').trim() === selectedClientFilter);
+    }
+
+    // Search Query Filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(row => 
+        row.some(cell => cell.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [data, searchQuery, selectedClientFilter]);
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * ROWS_PER_PAGE;
@@ -317,13 +340,36 @@ export default function App() {
               <div className="mt-1 md:mt-1.5 flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] shrink-0"></div>
                 <span className="text-[0.5rem] md:text-[0.6rem] font-black text-slate-400 uppercase tracking-widest truncate">
-                  {user.name}
+                  {user.isAdmin ? 'ADMIN' : user.name}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 md:gap-4 ml-auto sm:ml-0">
+            {/* Admin Client Dropdown */}
+            {user.isAdmin && (
+              <div className="relative group hidden lg:block">
+                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-sky-500 transition-colors" size={16} />
+                <select 
+                  value={selectedClientFilter}
+                  onChange={e => {
+                    setSelectedClientFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-11 pr-10 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-[0.7rem] font-black text-slate-700 focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 w-[180px] transition-all cursor-pointer appearance-none uppercase tracking-widest"
+                >
+                  <option value="all">All Clients</option>
+                  {uniqueClients.map(client => (
+                    <option key={client} value={client}>{client}</option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300">
+                  <ChevronRight size={14} className="rotate-90" />
+                </div>
+              </div>
+            )}
+
             <div className="relative group hidden sm:block">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 group-focus-within:text-sky-500 transition-colors" size={16} />
               <input 
@@ -334,9 +380,10 @@ export default function App() {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 w-[180px] lg:w-[240px] transition-all"
+                className="pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 w-[160px] md:w-[200px] transition-all"
               />
             </div>
+            
             <button 
               onClick={() => fetchData(user)}
               className="p-2.5 md:p-3 bg-slate-50 text-slate-400 hover:text-sky-500 hover:bg-sky-50 rounded-xl transition-all active:scale-90"
@@ -344,6 +391,7 @@ export default function App() {
             >
               <RefreshCcw size={16} className={`md:w-[18px] md:h-[18px] ${isLoading ? 'animate-spin' : ''}`} strokeWidth={2.5} />
             </button>
+            
             <button 
               onClick={() => setShowLogoutConfirm(true)}
               className="px-4 md:px-5 py-2.5 md:py-3 bg-slate-900 text-white rounded-xl text-[0.6rem] md:text-[0.65rem] font-black flex items-center gap-2 md:gap-3 transition-all hover:bg-black active:scale-95 shadow-lg shadow-slate-900/10"
@@ -444,7 +492,7 @@ export default function App() {
           )}
         </div>
 
-        {/* Footer Navigation - Updated with Next/Previous Buttons */}
+        {/* Footer Navigation */}
         <footer className="px-6 md:px-12 py-6 border-t border-slate-50 flex justify-between items-center bg-white shrink-0 relative">
           <button 
             disabled={currentPage <= 1 || syncError}

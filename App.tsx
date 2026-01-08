@@ -168,6 +168,20 @@ export default function App() {
     return { n: 'Archived', d: true, idx: 5 };
   }, []);
 
+  const parseTimestamp = useCallback((ts: string): number => {
+    if (!ts || ts === '-') return 0;
+    try {
+      // Expected format: 18/12/2025 15:30:07
+      const [datePart, timePart] = ts.split(' ');
+      if (!datePart || !timePart) return 0;
+      const [d, m, y] = datePart.split('/').map(Number);
+      const [h, min, s] = timePart.split(':').map(Number);
+      return new Date(y, m - 1, d, h, min, s).getTime();
+    } catch (e) {
+      return 0;
+    }
+  }, []);
+
   const fetchData = useCallback(async (u: User) => {
     setIsLoading(true);
     setSyncError(false);
@@ -238,7 +252,7 @@ export default function App() {
   }, [data]);
 
   const filteredData = useMemo(() => {
-    let result = data;
+    let result = [...data];
     
     // Client Dropdown Filter
     if (selectedClientFilter !== 'all') {
@@ -253,8 +267,26 @@ export default function App() {
       );
     }
 
+    // Advanced Sorting:
+    // 1. Completion status (Active/Processing first, Completed last)
+    // 2. Timestamp (Descending / Newest first)
+    result.sort((a, b) => {
+      const statusA = getMilestoneStatus(a);
+      const statusB = getMilestoneStatus(b);
+      
+      // If completion status differs, prioritize active ones at the top
+      if (statusA.d !== statusB.d) {
+        return statusA.d ? 1 : -1;
+      }
+      
+      // If status is the same, sort by timestamp descending (max to min)
+      const timeA = parseTimestamp(a[0]);
+      const timeB = parseTimestamp(b[0]);
+      return timeB - timeA;
+    });
+
     return result;
-  }, [data, searchQuery, selectedClientFilter]);
+  }, [data, searchQuery, selectedClientFilter, getMilestoneStatus, parseTimestamp]);
 
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * ROWS_PER_PAGE;

@@ -6,7 +6,7 @@ export const QUERY_GID = '1662570079';
 export const API_GID = '817322209';
 
 // IMPORTANT: Replace this with your actual Google Apps Script Web App URL after deploying the backend script provided below.
-export const TICKET_API_URL = 'https://script.google.com/macros/s/AKfycbzQKW133p2DyKwWp4r2lDlA0AZl2R-WGcy63uqpRJFszW55NZEYEjNtakiSx1U8DZK4/exec';
+export const TICKET_API_URL = 'https://script.google.com/macros/s/AKfycbzY7TJmfUEI2gz-vU4vMzuVqSXIf_kyU41LOeGbmR5jl8LMRLrgPHILW1_iVcRwYo_n/exec';
 
 export const CSV_QUERY_URL = (cb: number) => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${QUERY_GID}&cb=${cb}`;
 export const CSV_API_URL = (cb: number) => `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${API_GID}&cb=${cb}`;

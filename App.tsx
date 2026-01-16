@@ -30,7 +30,10 @@ import {
   PlusCircle,
   Send,
   CheckCircle2,
-  LayoutGrid
+  LayoutGrid,
+  RotateCcw,
+  History,
+  FileWarning
 } from 'lucide-react';
 
 // --- Shared UI Components ---
@@ -39,22 +42,6 @@ const Loader: React.FC = () => (
   <div className="absolute inset-0 bg-white/80 backdrop-blur-[2px] z-[1000] flex flex-col items-center justify-center fade-in">
     <div className="w-12 h-12 border-4 border-slate-100 border-t-sky-500 rounded-full animate-spin mb-4"></div>
     <p className="text-slate-500 font-extrabold text-[0.6rem] uppercase tracking-[0.2em]">Processing Request</p>
-  </div>
-);
-
-const SyncError: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
-  <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12 text-center bg-slate-50/50">
-    <div className="w-16 h-16 md:w-20 md:h-20 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-red-500/10">
-      <WifiOff size={32} strokeWidth={2.5} />
-    </div>
-    <h2 className="text-xl font-black text-slate-800 mb-3 tracking-tight">Sync Disconnected</h2>
-    <p className="max-w-md text-slate-500 font-medium text-xs md:text-sm leading-relaxed mb-8">
-      Check your Google Sheet "Publish to Web" settings.
-    </p>
-    <button onClick={onRetry} className="px-8 py-4 bg-slate-900 text-white font-black rounded-2xl flex items-center gap-3 hover:bg-black transition-all active:scale-95 text-xs tracking-widest uppercase">
-      <RefreshCcw size={18} strokeWidth={2.5} />
-      Retry Sync
-    </button>
   </div>
 );
 
@@ -101,7 +88,6 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loginForm, setLoginForm] = useState({ name: '', key: '' });
   const [loginError, setLoginError] = useState(false);
-  const [syncError, setSyncError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [data, setData] = useState<RawRow[]>([]);
@@ -109,11 +95,20 @@ export default function App() {
   const [selectedRow, setSelectedRow] = useState<RawRow | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+  const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedClientFilter, setSelectedClientFilter] = useState('all');
   const [lastUpdated, setLastUpdated] = useState<string>('');
   
+  // Re-open Workflow State
+  const [reopenStep, setReopenStep] = useState<'IDENTIFY' | 'COMMENT'>('IDENTIFY');
+  const [reopenTicketNo, setReopenTicketNo] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
+  const [reopenError, setReopenError] = useState('');
+  const [isSubmittingReopen, setIsSubmittingReopen] = useState(false);
+  const [reopenSuccess, setReopenSuccess] = useState(false);
+  const [validatedRow, setValidatedRow] = useState<RawRow | null>(null);
+
   // Ticket Form State
   const [ticketForm, setTicketForm] = useState({ issueQuery: '' });
   const [isSubmittingTicket, setIsSubmittingTicket] = useState(false);
@@ -150,7 +145,6 @@ export default function App() {
     if (silent) setIsBackgroundSyncing(true);
     else setIsLoading(true);
     
-    setSyncError(false);
     try {
       const rawRows = await fetchCSV(CSV_QUERY_URL(Date.now()));
       const filtered = rawRows.slice(6).filter(r => {
@@ -165,20 +159,17 @@ export default function App() {
       const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
       setLastUpdated(timeStr);
     } catch (e) { 
-      setSyncError(true); 
+      console.error("Fetch Error", e);
     } finally { 
       setIsLoading(false); 
       setIsBackgroundSyncing(false);
     }
   }, []);
 
-  // Initial Load and Auto-Refresh
   useEffect(() => { 
     if (user) {
       fetchData(user); 
-      const interval = setInterval(() => {
-        fetchData(user, true);
-      }, 60000); // Sync every 60 seconds
+      const interval = setInterval(() => fetchData(user, true), 60000);
       return () => clearInterval(interval);
     }
   }, [user, fetchData]);
@@ -210,80 +201,68 @@ export default function App() {
     if (!ticketForm.issueQuery.trim() || !user) return;
     setIsSubmittingTicket(true);
     try {
-      const payload = {
-        raisedBy: user.name,
-        receivedBy: 'Deepak Kaushik',
-        issueQuery: ticketForm.issueQuery
-      };
-      
-      const response = await fetch(TICKET_API_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
+      const payload = { raisedBy: user.name, receivedBy: 'Deepak Kaushik', issueQuery: ticketForm.issueQuery };
+      await fetch(TICKET_API_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       setTicketSuccess(true);
       setTicketForm({ issueQuery: '' });
+      setTimeout(() => { setIsTicketModalOpen(false); setTicketSuccess(false); fetchData(user); }, 2000);
+    } catch (e) { alert("Submission Error"); } finally { setIsSubmittingTicket(false); }
+  };
+
+  // --- Re-open Handlers ---
+
+  const handleRowReopen = (row: RawRow) => {
+    setValidatedRow(row);
+    setReopenTicketNo(row[6] || '');
+    setReopenStep('COMMENT');
+    setIsReopenModalOpen(true);
+  };
+
+  const handleReopenSubmit = async () => {
+    if (!reopenReason.trim() || !user || !validatedRow) return;
+    setIsSubmittingReopen(true);
+    try {
+      const payload = { 
+        raisedBy: user.name, 
+        receivedBy: 'MIS TEAM (RE-OPEN)', 
+        issueQuery: `[RE-OPEN REQUEST FOR ${validatedRow[6]}] - Reason: ${reopenReason}`,
+        originalTicketNo: validatedRow[6]
+      };
+      await fetch(TICKET_API_URL, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      setReopenSuccess(true);
       setTimeout(() => {
-        setIsTicketModalOpen(false);
-        setTicketSuccess(false);
-        fetchData(user); 
-      }, 2000);
-    } catch (e) {
-      alert("Submission Error. Please check connectivity.");
-    } finally {
-      setIsSubmittingTicket(false);
-    }
+        setIsReopenModalOpen(false);
+        setReopenSuccess(false);
+        setReopenStep('IDENTIFY');
+        setReopenTicketNo('');
+        setReopenReason('');
+        setValidatedRow(null);
+      }, 2500);
+    } catch (e) { alert("Error re-opening ticket"); } finally { setIsSubmittingReopen(false); }
   };
 
   const filteredData = useMemo(() => {
     let result = [...data];
-    if (selectedClientFilter !== 'all') result = result.filter(row => (row[2] || '').trim() === selectedClientFilter);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(row => row.some(cell => cell.toLowerCase().includes(q)));
     }
-
     result.sort((a, b) => {
-      // Get statuses and weights for primary sorting
       const statusA = getMilestoneStatus(a);
       const statusB = getMilestoneStatus(b);
       // @ts-ignore
-      const labelA = statusA.customStatus;
+      const getWeight = (l) => l === 'ACTIVE TICKET' ? 0 : (l === 'PROCESSING' ? 1 : 2);
       // @ts-ignore
-      const labelB = statusB.customStatus;
-      
-      const getWeight = (label: string) => {
-        if (label === 'ACTIVE TICKET') return 0; // Top priority
-        if (label === 'PROCESSING') return 1;    // Middle
-        if (label === 'Ticket Closed') return 2; // Bottom priority
-        return 3;
-      };
-      
-      const weightA = getWeight(labelA);
-      const weightB = getWeight(labelB);
-
-      // Primary Sort: By Status Weight
-      if (weightA !== weightB) return weightA - weightB;
-
-      // Secondary Sort: By Ticket Raised (Date) - Max to Min (Newest first)
-      const valA = a[0] || '';
-      const valB = b[0] || '';
-      const dateA = new Date(valA).getTime();
-      const dateB = new Date(valB).getTime();
-
-      if (!isNaN(dateA) && !isNaN(dateB)) {
-        if (dateA !== dateB) return dateB - dateA;
-      } else {
-        if (valA !== valB) return valB.localeCompare(valA);
-      }
-      
-      return 0;
+      const wA = getWeight(statusA.customStatus);
+      // @ts-ignore
+      const wB = getWeight(statusB.customStatus);
+      if (wA !== wB) return wA - wB;
+      const dateA = new Date(a[0]).getTime();
+      const dateB = new Date(b[0]).getTime();
+      return dateB - dateA;
     });
-
     return result;
-  }, [data, searchQuery, selectedClientFilter, getMilestoneStatus]);
+  }, [data, searchQuery, getMilestoneStatus]);
 
   const paginatedData = useMemo(() => filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE), [filteredData, currentPage]);
   const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE) || 1;
@@ -301,37 +280,10 @@ export default function App() {
             <p className="text-[#94a3b8] text-[0.7rem] font-bold tracking-[0.15em] uppercase">Elite Client Interface</p>
           </div>
           <div className="space-y-5">
-            <div className="relative group">
-              <input 
-                type="text" 
-                placeholder="Identity Reference" 
-                className="w-full px-8 py-5 bg-[#f8fafc] border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-bold text-slate-700 placeholder:text-slate-300 transition-all" 
-                value={loginForm.name} 
-                onChange={e => setLoginForm(prev => ({ ...prev, name: e.target.value }))} 
-              />
-            </div>
-            <div className="relative group">
-              <input 
-                type="password" 
-                placeholder="Security Credential" 
-                className="w-full px-8 py-5 bg-[#f8fafc] border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-bold text-slate-700 placeholder:text-slate-300 transition-all" 
-                value={loginForm.key} 
-                onChange={e => setLoginForm(prev => ({ ...prev, key: e.target.value }))} 
-              />
-            </div>
-            <button 
-              onClick={handleLogin} 
-              className="w-full py-6 bg-[#0f172a] hover:bg-black text-white font-black rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-4 text-xs tracking-[0.2em] uppercase mt-4 active:scale-95"
-            >
-              AUTHENTICATE ACCESS 
-              <ArrowRight size={20} strokeWidth={2.5} />
-            </button>
-            {loginError && (
-              <div className="p-4 bg-red-50 rounded-2xl flex items-center gap-3 text-red-600 fade-in">
-                <AlertCircle size={18} /> 
-                <span className="text-[0.6rem] font-black uppercase tracking-widest">Authentication Denied</span>
-              </div>
-            )}
+            <input type="text" placeholder="Identity Reference" className="w-full px-8 py-5 bg-[#f8fafc] border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-bold text-slate-700 transition-all" value={loginForm.name} onChange={e => setLoginForm(prev => ({ ...prev, name: e.target.value }))} />
+            <input type="password" placeholder="Security Credential" className="w-full px-8 py-5 bg-[#f8fafc] border border-slate-100 rounded-[1.5rem] focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500 font-bold text-slate-700 transition-all" value={loginForm.key} onChange={e => setLoginForm(prev => ({ ...prev, key: e.target.value }))} />
+            <button onClick={handleLogin} className="w-full py-6 bg-[#0f172a] hover:bg-black text-white font-black rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-4 text-xs tracking-[0.2em] uppercase mt-4">AUTHENTICATE ACCESS <ArrowRight size={20} strokeWidth={2.5} /></button>
+            {loginError && <div className="p-4 bg-red-50 rounded-2xl flex items-center gap-3 text-red-600 fade-in"><AlertCircle size={18} /> <span className="text-[0.6rem] font-black uppercase tracking-widest">Denied</span></div>}
           </div>
         </div>
       </div>
@@ -342,56 +294,38 @@ export default function App() {
     <div className="h-screen w-full flex flex-col p-4 lg:p-8 bg-slate-100 overflow-hidden text-slate-800">
       <div className="bg-white rounded-[2.5rem] shadow-2xl flex flex-col h-full border border-slate-200 overflow-hidden relative slide-up">
         {isLoading && <Loader />}
+        
         <header className="px-8 py-6 border-b border-slate-50 flex flex-wrap justify-between items-center gap-4 bg-white/90 backdrop-blur-xl z-30">
           <div className="flex items-center gap-5">
-            <div className="w-12 h-12 bg-sky-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-sky-500/30"><LayoutDashboard size={24} strokeWidth={2.5} /></div>
+            <div className="w-12 h-12 bg-sky-500 text-white rounded-2xl flex items-center justify-center shadow-lg"><LayoutDashboard size={24} strokeWidth={2.5} /></div>
             <div className="min-w-0">
               <h1 className="text-xl font-black text-slate-800 tracking-tight leading-none uppercase">Query Hub</h1>
               <div className="mt-1.5 flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div><span className="text-[0.6rem] font-black text-slate-400 uppercase tracking-widest">{user.name}</span></div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsTicketModalOpen(true)}
-              className="flex items-center gap-2 px-5 py-3 bg-sky-500 text-white font-black rounded-xl shadow-lg shadow-sky-500/20 hover:bg-sky-600 transition-all active:scale-95 text-[0.65rem] tracking-widest uppercase"
-            >
-              <PlusCircle size={18} />
-              Raise Ticket
-            </button>
-
-            <div className="relative group hidden sm:block">
+          
+          <div className="flex items-center gap-3">
+            <button onClick={() => setIsTicketModalOpen(true)} className="flex items-center gap-2 px-6 py-3.5 bg-sky-500 text-white font-black rounded-xl shadow-lg hover:bg-sky-600 transition-all text-[0.65rem] tracking-widest uppercase"><PlusCircle size={18} /> Raise Ticket</button>
+            
+            <div className="relative group hidden sm:block ml-2">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-              <input type="text" placeholder="Filter..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="pl-11 pr-4 py-2.5 bg-slate-50 border rounded-xl text-xs font-bold w-[160px]" />
+              <input type="text" placeholder="Filter..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="pl-11 pr-4 py-3 bg-slate-50 border rounded-xl text-xs font-bold w-[160px]" />
             </div>
 
-            {/* Simplified Refresh Status UI */}
-            <div className="flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:bg-slate-100/50">
-              <div className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${isBackgroundSyncing ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]'}`}></div>
-                <span className="text-[0.75rem] font-extrabold text-slate-700 tracking-tight whitespace-nowrap">
-                  Updated: <span className="text-slate-500 font-bold mono-font ml-1">{lastUpdated || 'Syncing...'}</span>
-                </span>
-              </div>
-              <div className="w-px h-4 bg-slate-200"></div>
-              <button 
-                onClick={() => fetchData(user)} 
-                className={`p-1.5 transition-all duration-500 hover:bg-white rounded-lg ${isBackgroundSyncing ? 'animate-spin text-sky-500' : 'text-slate-300 hover:text-sky-500'}`}
-              >
-                <RefreshCcw size={18} strokeWidth={2.5} />
-              </button>
+            <div className="flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-2xl border border-slate-100 ml-2">
+              <span className="text-[0.75rem] font-extrabold text-slate-700 whitespace-nowrap">Updated: <span className="text-slate-500 font-bold mono-font ml-1">{lastUpdated || 'Syncing...'}</span></span>
+              <button onClick={() => fetchData(user)} className={`p-1.5 transition-all ${isBackgroundSyncing ? 'animate-spin text-sky-500' : 'text-slate-300'}`}><RefreshCcw size={18} /></button>
             </div>
-
-            <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-slate-900 text-white rounded-xl text-[0.65rem] font-black flex items-center gap-3 transition-all hover:bg-black active:scale-95">Log Out</button>
+            
+            <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3.5 bg-slate-900 text-white rounded-xl text-[0.65rem] font-black hover:bg-black transition-all ml-2">Log Out</button>
           </div>
         </header>
 
         <div className="flex-1 overflow-auto custom-scrollbar flex flex-col">
-          <table className="w-full text-left border-collapse min-w-[800px]">
+          <table className="w-full text-left border-collapse min-w-[1100px]">
             <thead className="sticky top-0 bg-white z-20 border-b border-slate-100 shadow-sm">
               <tr>
-                {(user.isAdmin ? ADMIN_COLS : USER_COLS).map(col => (
-                  <th key={col.l} className="px-8 py-5 text-[0.6rem] font-black text-slate-400 uppercase tracking-[0.2em]">{col.l}</th>
-                ))}
+                {(user.isAdmin ? ADMIN_COLS : USER_COLS).map(col => <th key={col.l} className="px-8 py-5 text-[0.6rem] font-black text-slate-400 uppercase tracking-[0.2em]">{col.l}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -399,26 +333,31 @@ export default function App() {
                 const info = getMilestoneStatus(row);
                 // @ts-ignore
                 const sL = info.customStatus;
-                const sC = sL === 'Ticket Closed' ? 'text-emerald-500' : (sL === 'ACTIVE TICKET' ? 'text-sky-500' : 'text-amber-500');
+                const isClosed = sL === 'Ticket Closed';
+                const sC = isClosed ? 'text-emerald-500' : (sL === 'ACTIVE TICKET' ? 'text-sky-500' : 'text-amber-500');
                 return (
                   <tr key={ridx} className="group hover:bg-slate-50/50 transition-all">
                     {(user.isAdmin ? ADMIN_COLS : USER_COLS).map((col, cidx) => {
-                      if (col.i === -1) return <td key={cidx} className="px-8 py-6"><button onClick={() => { setSelectedRow(row); setIsDrawerOpen(true); }} className="px-6 py-2 bg-white text-slate-800 border-2 rounded-xl text-[0.6rem] font-black hover:bg-slate-900 hover:text-white transition-all uppercase tracking-widest">Tracking</button></td>;
-                      if (col.i === -2) return <td key={cidx} className="px-8 py-6"><div className="text-[0.75rem] font-black text-slate-700 uppercase line-clamp-2">{info.n}</div><div className={`text-[0.55rem] font-black uppercase tracking-widest mt-1 ${sC}`}>{sL}</div></td>;
-                      
-                      const isIssueCol = col.i === 3;
-                      return (
-                        <td 
-                          key={cidx} 
-                          className={`px-8 py-6 text-[0.75rem] text-slate-600 font-bold ${
-                            isIssueCol 
-                              ? 'whitespace-normal break-words min-w-[300px] max-w-[450px] leading-relaxed' 
-                              : 'max-w-[200px] truncate'
-                          }`}
-                        >
-                          {row[col.i] || '-'}
+                      if (col.i === -1) return <td key={cidx} className="px-8 py-6"><button onClick={() => { setSelectedRow(row); setIsDrawerOpen(true); }} className="px-6 py-2 bg-white text-slate-800 border-2 rounded-xl text-[0.6rem] font-black hover:bg-slate-900 hover:text-white transition-all uppercase tracking-widest whitespace-nowrap">Tracking</button></td>;
+                      if (col.i === -2) return <td key={cidx} className="px-8 py-6"><div className="text-[0.75rem] font-black text-slate-700 uppercase line-clamp-2">{info.n}</div><div className={`text-[0.55rem] font-black uppercase tracking-widest mt-1 ${sC} whitespace-nowrap`}>{sL}</div></td>;
+                      if (col.i === -3) return (
+                        <td key={cidx} className="px-8 py-6 min-w-[140px] whitespace-nowrap">
+                          <button 
+                            disabled={!isClosed}
+                            onClick={() => handleRowReopen(row)} 
+                            className={`px-5 py-2.5 rounded-xl text-[0.6rem] font-black transition-all uppercase tracking-widest flex items-center gap-2 whitespace-nowrap shadow-md active:scale-95 ${
+                              isClosed 
+                                ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/10' 
+                                : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-50 shadow-none'
+                            }`}
+                          >
+                            <RotateCcw size={12} strokeWidth={3} />
+                            <span>Re-Open</span>
+                          </button>
                         </td>
                       );
+                      const isIssueCol = col.i === 3;
+                      return <td key={cidx} className={`px-8 py-6 text-[0.75rem] text-slate-600 font-bold ${isIssueCol ? 'whitespace-normal min-w-[300px] max-w-[450px]' : 'truncate max-w-[200px]'}`}>{row[col.i] || '-'}</td>;
                     })}
                   </tr>
                 );
@@ -429,13 +368,55 @@ export default function App() {
 
         <footer className="px-12 py-4 border-t border-slate-50 flex justify-between items-center bg-white">
           <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="px-4 py-2 bg-slate-50 text-slate-400 font-black text-[0.65rem] uppercase tracking-widest rounded-xl disabled:opacity-20">Prev</button>
-          <div className="flex items-center gap-6">
-            <span className="text-[0.85rem] font-bold text-slate-800 tracking-[0.2em]">{currentPage} / {totalPages}</span>
-            <div className="h-4 w-px bg-slate-100 hidden sm:block"></div>
-            <span className="hidden sm:block text-[0.6rem] font-black text-slate-300 uppercase tracking-widest">Total: {filteredData.length} Records</span>
-          </div>
+          <span className="text-[0.85rem] font-bold text-slate-800 tracking-[0.2em]">{currentPage} / {totalPages}</span>
           <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)} className="px-4 py-2 bg-slate-50 text-slate-400 font-black text-[0.65rem] uppercase tracking-widest rounded-xl disabled:opacity-20">Next</button>
         </footer>
+
+        {/* Re-Open Ticket Modal */}
+        {isReopenModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[2000] flex items-center justify-center p-6 fade-in">
+            <div className="bg-white rounded-[3.5rem] p-12 max-w-lg w-full shadow-2xl relative slide-up border border-slate-50">
+              {isSubmittingReopen && <Loader />}
+              <div className="flex justify-between items-start mb-8">
+                <div className="space-y-1">
+                  <span className="text-[0.6rem] font-black text-amber-500 uppercase tracking-[0.4em]">Service Escalation</span>
+                  <h2 className="text-3xl font-black text-slate-800 tracking-tight">Re-Open Ticket</h2>
+                </div>
+                <button onClick={() => { setIsReopenModalOpen(false); setReopenReason(''); }} className="p-3 text-slate-300 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all"><X size={24}/></button>
+              </div>
+
+              {reopenSuccess ? (
+                <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-2"><CheckCircle2 size={40} /></div>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase">Request Sent</h3>
+                  <p className="text-slate-500 font-bold text-sm">Escalation for {validatedRow?.[6]} received by MIS Team.</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border">
+                    <History className="text-slate-400" size={20} />
+                    <div>
+                      <p className="text-[0.55rem] font-black text-slate-400 uppercase tracking-widest">Target Ticket</p>
+                      <p className="text-sm font-black text-slate-800 uppercase">{validatedRow?.[6]}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[0.55rem] font-black text-slate-400 uppercase tracking-widest ml-1">Reason for Re-opening</label>
+                    <textarea 
+                      placeholder="Tell us why the previous resolution was unsatisfactory..." 
+                      className="w-full px-8 py-6 bg-slate-50 border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-amber-500/10 font-bold text-sm min-h-[140px]" 
+                      value={reopenReason} 
+                      onChange={e => setReopenReason(e.target.value)} 
+                    />
+                  </div>
+                  <button onClick={handleReopenSubmit} disabled={!reopenReason.trim()} className="w-full py-6 bg-amber-500 text-white font-bold rounded-[1.5rem] flex items-center justify-center gap-3 uppercase tracking-widest text-[0.7rem] disabled:opacity-20 shadow-xl shadow-amber-500/20 active:scale-95 transition-all">
+                    Submit Request <Send size={18}/>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Raise Ticket Modal */}
         {isTicketModalOpen && (
@@ -443,38 +424,22 @@ export default function App() {
             <div className="bg-white rounded-[3.5rem] p-12 max-w-lg w-full shadow-2xl relative slide-up border border-slate-50">
               {isSubmittingTicket && <Loader />}
               <div className="flex justify-between items-start mb-10">
-                <div className="space-y-2">
-                  <span className="text-[0.6rem] font-black text-sky-500 uppercase tracking-[0.4em]">New Inquiry</span>
-                  <h2 className="text-3xl font-black text-slate-800 tracking-tight">Raise Ticket</h2>
-                </div>
-                <button onClick={() => setIsTicketModalOpen(false)} className="p-3 text-slate-300 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all"><X size={24} strokeWidth={2.5}/></button>
+                <div className="space-y-2"><span className="text-[0.6rem] font-black text-sky-500 uppercase tracking-[0.4em]">New Inquiry</span><h2 className="text-3xl font-black text-slate-800 tracking-tight">Raise Ticket</h2></div>
+                <button onClick={() => setIsTicketModalOpen(false)} className="p-3 text-slate-300 hover:text-slate-900 rounded-2xl transition-all"><X size={24}/></button>
               </div>
-
               {ticketSuccess ? (
                 <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
-                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center shadow-inner mb-2"><CheckCircle2 size={40} /></div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight">Submitted!</h3>
-                  <p className="text-slate-500 font-bold text-sm tracking-wide">Professional notification sent to MIS Team.</p>
+                  <div className="w-20 h-20 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-2"><CheckCircle2 size={40} /></div>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase">Submitted!</h3>
+                  <p className="text-slate-500 font-bold text-sm">Professional notification sent to MIS Team.</p>
                 </div>
               ) : (
                 <div className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-[0.55rem] font-black text-slate-400 uppercase tracking-widest ml-1">Issue / Query</label>
-                    <textarea 
-                      placeholder="Explain your inquiry in detail..."
-                      className="w-full px-8 py-6 bg-slate-50 border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-sky-500/10 focus:border-sky-500 font-bold text-sm min-h-[150px] transition-all"
-                      value={ticketForm.issueQuery}
-                      onChange={e => setTicketForm({ issueQuery: e.target.value })}
-                    />
+                    <textarea placeholder="Explain your inquiry in detail..." className="w-full px-8 py-6 bg-slate-50 border border-slate-200 rounded-[1.5rem] focus:outline-none focus:ring-4 focus:ring-sky-500/10 font-bold text-sm min-h-[150px]" value={ticketForm.issueQuery} onChange={e => setTicketForm({ issueQuery: e.target.value })} />
                   </div>
-                  <button 
-                    disabled={!ticketForm.issueQuery.trim()}
-                    onClick={handleRaiseTicket}
-                    className="w-full py-6 bg-slate-900 hover:bg-black text-white font-bold rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-3 tracking-[0.2em] text-[0.7rem] uppercase active:scale-95 disabled:opacity-20 disabled:pointer-events-none"
-                  >
-                    SEND TICKET
-                    <Send size={18} />
-                  </button>
+                  <button disabled={!ticketForm.issueQuery.trim()} onClick={handleRaiseTicket} className="w-full py-6 bg-slate-900 hover:bg-black text-white font-bold rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-3 tracking-[0.2em] text-[0.7rem] uppercase">SEND TICKET <Send size={18} /></button>
                 </div>
               )}
             </div>
@@ -491,7 +456,7 @@ export default function App() {
                   <span className="text-[0.6rem] font-black text-sky-500 uppercase tracking-[0.4em]">Tracking Monitor</span>
                   <h2 className="text-2xl font-black text-slate-800 leading-tight">{selectedRow[6] || 'TICKET'}</h2>
                 </div>
-                <button onClick={() => setIsDrawerOpen(false)} className="p-3 text-slate-300 hover:text-slate-900 rounded-2xl"><X size={28} strokeWidth={2.5}/></button>
+                <button onClick={() => setIsDrawerOpen(false)} className="p-3 text-slate-300 hover:text-slate-900 rounded-2xl"><X size={28}/></button>
               </div>
               <div className="flex-1 overflow-y-auto p-10 space-y-6 custom-scrollbar">
                 {STEPS.map((step, i) => {
@@ -509,26 +474,12 @@ export default function App() {
 
         {showLogoutConfirm && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[2000] flex items-center justify-center p-6 fade-in">
-            <div className="bg-white rounded-[3.5rem] p-12 max-w-[440px] w-full shadow-2xl slide-up relative overflow-hidden border border-slate-50">
-              <div className="w-20 h-20 bg-[#fff5f5] text-[#ff4d4d] rounded-3xl flex items-center justify-center mx-auto mb-8">
-                <LogOut size={42} strokeWidth={2.5} />
-              </div>
-              <h3 className="text-3xl font-extrabold text-center mb-2 tracking-tight text-[#1e293b]">Log Out?</h3>
-              <p className="text-[#94a3b8] font-bold text-center mb-10 text-[0.7rem] uppercase tracking-[0.3em]">End secure session?</p>
-              
+            <div className="bg-white rounded-[3.5rem] p-12 max-w-[440px] w-full shadow-2xl slide-up border border-slate-50">
+              <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto mb-8"><LogOut size={42} /></div>
+              <h3 className="text-3xl font-extrabold text-center mb-10 tracking-tight text-[#1e293b]">Log Out?</h3>
               <div className="flex flex-col gap-4">
-                <button 
-                  onClick={logout} 
-                  className="w-full py-6 bg-[#ff4d4d] hover:bg-[#ff3333] text-white font-bold rounded-[1.5rem] uppercase tracking-[0.2em] text-[0.8rem] shadow-[0_15px_35px_rgba(255,77,77,0.3)] transition-all active:scale-95"
-                >
-                  Logout
-                </button>
-                <button 
-                  onClick={() => setShowLogoutConfirm(false)} 
-                  className="w-full py-6 bg-[#f8fafc] hover:bg-slate-100 text-[#64748b] font-bold rounded-[1.5rem] uppercase tracking-[0.2em] text-[0.8rem] transition-all"
-                >
-                  Stay
-                </button>
+                <button onClick={logout} className="w-full py-6 bg-red-500 text-white font-bold rounded-[1.5rem] uppercase tracking-[0.2em] text-[0.8rem] shadow-lg">Logout</button>
+                <button onClick={() => setShowLogoutConfirm(false)} className="w-full py-6 bg-slate-50 text-slate-400 font-bold rounded-[1.5rem] uppercase tracking-[0.2em] text-[0.8rem]">Stay</button>
               </div>
             </div>
           </div>

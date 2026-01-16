@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { User, RawRow, MilestoneInfo } from './types';
 import { 
   CSV_QUERY_URL, 
@@ -103,6 +103,7 @@ export default function App() {
   const [loginError, setLoginError] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState(false);
   const [data, setData] = useState<RawRow[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState<RawRow | null>(null);
@@ -111,6 +112,7 @@ export default function App() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClientFilter, setSelectedClientFilter] = useState('all');
+  const [lastUpdated, setLastUpdated] = useState<string>('');
   
   // Ticket Form State
   const [ticketForm, setTicketForm] = useState({ issueQuery: '' });
@@ -136,7 +138,7 @@ export default function App() {
     }
     const step5Remark = (row[STEPS[4].r] || '').trim();
     const isOverallComplete = step5Remark !== '';
-    let statusLabel = isOverallComplete ? 'COMPLETE' : (furthestRemarkIdx >= 0 ? 'ACTIVE TICKET' : 'PROCESSING');
+    let statusLabel = isOverallComplete ? 'Ticket Closed' : (furthestRemarkIdx >= 0 ? 'ACTIVE TICKET' : 'PROCESSING');
     let displayHeading = furthestRemarkIdx >= 0 ? (row[STEPS[furthestRemarkIdx].r] || '').trim() : 'PLEASE AWAIT INFORMATION';
 
     return { n: displayHeading, d: isOverallComplete, idx: furthestRemarkIdx, 
@@ -144,8 +146,10 @@ export default function App() {
       customStatus: statusLabel };
   }, []);
 
-  const fetchData = useCallback(async (u: User) => {
-    setIsLoading(true);
+  const fetchData = useCallback(async (u: User, silent: boolean = false) => {
+    if (silent) setIsBackgroundSyncing(true);
+    else setIsLoading(true);
+    
     setSyncError(false);
     try {
       const rawRows = await fetchCSV(CSV_QUERY_URL(Date.now()));
@@ -156,10 +160,28 @@ export default function App() {
         return u.isAdmin || client === u.name.toLowerCase();
       });
       setData(filtered);
-    } catch (e) { setSyncError(true); } finally { setIsLoading(false); }
+      
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+      setLastUpdated(timeStr);
+    } catch (e) { 
+      setSyncError(true); 
+    } finally { 
+      setIsLoading(false); 
+      setIsBackgroundSyncing(false);
+    }
   }, []);
 
-  useEffect(() => { if (user) fetchData(user); }, [user, fetchData]);
+  // Initial Load and Auto-Refresh
+  useEffect(() => { 
+    if (user) {
+      fetchData(user); 
+      const interval = setInterval(() => {
+        fetchData(user, true);
+      }, 60000); // Sync every 60 seconds
+      return () => clearInterval(interval);
+    }
+  }, [user, fetchData]);
 
   const handleLogin = async () => {
     if (!loginForm.name || !loginForm.key) return;
@@ -224,43 +246,39 @@ export default function App() {
     }
 
     result.sort((a, b) => {
-      // 1. Primary Sort: Ticket Raised (Index 0) - Max to Min (Newest first)
+      // Get statuses and weights for primary sorting
+      const statusA = getMilestoneStatus(a);
+      const statusB = getMilestoneStatus(b);
+      // @ts-ignore
+      const labelA = statusA.customStatus;
+      // @ts-ignore
+      const labelB = statusB.customStatus;
+      
+      const getWeight = (label: string) => {
+        if (label === 'ACTIVE TICKET') return 0; // Top priority
+        if (label === 'PROCESSING') return 1;    // Middle
+        if (label === 'Ticket Closed') return 2; // Bottom priority
+        return 3;
+      };
+      
+      const weightA = getWeight(labelA);
+      const weightB = getWeight(labelB);
+
+      // Primary Sort: By Status Weight
+      if (weightA !== weightB) return weightA - weightB;
+
+      // Secondary Sort: By Ticket Raised (Date) - Max to Min (Newest first)
       const valA = a[0] || '';
       const valB = b[0] || '';
-      
-      // Attempt date parsing
       const dateA = new Date(valA).getTime();
       const dateB = new Date(valB).getTime();
 
       if (!isNaN(dateA) && !isNaN(dateB)) {
         if (dateA !== dateB) return dateB - dateA;
       } else {
-        // Fallback to lexicographical if parsing fails
         if (valA !== valB) return valB.localeCompare(valA);
       }
-
-      // 2. Secondary Sort: Status Priority
-      const statusA = getMilestoneStatus(a);
-      const statusB = getMilestoneStatus(b);
       
-      // @ts-ignore
-      const labelA = statusA.customStatus;
-      // @ts-ignore
-      const labelB = statusB.customStatus;
-
-      const getWeight = (label: string) => {
-        if (label === 'ACTIVE TICKET') return 0;
-        if (label === 'PROCESSING') return 1;
-        if (label === 'COMPLETE') return 2;
-        return 3;
-      };
-
-      const weightA = getWeight(labelA);
-      const weightB = getWeight(labelB);
-
-      if (weightA !== weightB) {
-        return weightA - weightB;
-      }
       return 0;
     });
 
@@ -345,14 +363,31 @@ export default function App() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
               <input type="text" placeholder="Filter..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="pl-11 pr-4 py-2.5 bg-slate-50 border rounded-xl text-xs font-bold w-[160px]" />
             </div>
-            <button onClick={() => fetchData(user)} className="p-3 bg-slate-50 text-slate-400 hover:text-sky-500 rounded-xl"><RefreshCcw size={18} strokeWidth={2.5} /></button>
-            <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-slate-900 text-white rounded-xl text-[0.65rem] font-black flex items-center gap-3">Log Out</button>
+
+            {/* Simplified Refresh Status UI */}
+            <div className="flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-2xl border border-slate-100 shadow-sm transition-all hover:bg-slate-100/50">
+              <div className="flex items-center gap-3">
+                <div className={`w-2 h-2 rounded-full ${isBackgroundSyncing ? 'bg-sky-500 animate-pulse' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]'}`}></div>
+                <span className="text-[0.75rem] font-extrabold text-slate-700 tracking-tight whitespace-nowrap">
+                  Updated: <span className="text-slate-500 font-bold mono-font ml-1">{lastUpdated || 'Syncing...'}</span>
+                </span>
+              </div>
+              <div className="w-px h-4 bg-slate-200"></div>
+              <button 
+                onClick={() => fetchData(user)} 
+                className={`p-1.5 transition-all duration-500 hover:bg-white rounded-lg ${isBackgroundSyncing ? 'animate-spin text-sky-500' : 'text-slate-300 hover:text-sky-500'}`}
+              >
+                <RefreshCcw size={18} strokeWidth={2.5} />
+              </button>
+            </div>
+
+            <button onClick={() => setShowLogoutConfirm(true)} className="px-5 py-3 bg-slate-900 text-white rounded-xl text-[0.65rem] font-black flex items-center gap-3 transition-all hover:bg-black active:scale-95">Log Out</button>
           </div>
         </header>
 
         <div className="flex-1 overflow-auto custom-scrollbar flex flex-col">
           <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead className="sticky top-0 bg-white z-20 border-b border-slate-100">
+            <thead className="sticky top-0 bg-white z-20 border-b border-slate-100 shadow-sm">
               <tr>
                 {(user.isAdmin ? ADMIN_COLS : USER_COLS).map(col => (
                   <th key={col.l} className="px-8 py-5 text-[0.6rem] font-black text-slate-400 uppercase tracking-[0.2em]">{col.l}</th>
@@ -364,13 +399,26 @@ export default function App() {
                 const info = getMilestoneStatus(row);
                 // @ts-ignore
                 const sL = info.customStatus;
-                const sC = sL === 'COMPLETE' ? 'text-emerald-500' : (sL === 'ACTIVE TICKET' ? 'text-sky-500' : 'text-amber-500');
+                const sC = sL === 'Ticket Closed' ? 'text-emerald-500' : (sL === 'ACTIVE TICKET' ? 'text-sky-500' : 'text-amber-500');
                 return (
                   <tr key={ridx} className="group hover:bg-slate-50/50 transition-all">
                     {(user.isAdmin ? ADMIN_COLS : USER_COLS).map((col, cidx) => {
-                      if (col.i === -1) return <td key={cidx} className="px-8 py-5"><button onClick={() => { setSelectedRow(row); setIsDrawerOpen(true); }} className="px-6 py-2 bg-white text-slate-800 border-2 rounded-xl text-[0.6rem] font-black hover:bg-slate-900 hover:text-white transition-all uppercase tracking-widest">Tracking</button></td>;
-                      if (col.i === -2) return <td key={cidx} className="px-8 py-5"><div className="text-[0.75rem] font-black text-slate-700 uppercase line-clamp-2">{info.n}</div><div className={`text-[0.55rem] font-black uppercase tracking-widest mt-1 ${sC}`}>{sL}</div></td>;
-                      return <td key={cidx} className="px-8 py-5 text-[0.75rem] text-slate-600 font-bold max-w-[300px] truncate">{row[col.i] || '-'}</td>;
+                      if (col.i === -1) return <td key={cidx} className="px-8 py-6"><button onClick={() => { setSelectedRow(row); setIsDrawerOpen(true); }} className="px-6 py-2 bg-white text-slate-800 border-2 rounded-xl text-[0.6rem] font-black hover:bg-slate-900 hover:text-white transition-all uppercase tracking-widest">Tracking</button></td>;
+                      if (col.i === -2) return <td key={cidx} className="px-8 py-6"><div className="text-[0.75rem] font-black text-slate-700 uppercase line-clamp-2">{info.n}</div><div className={`text-[0.55rem] font-black uppercase tracking-widest mt-1 ${sC}`}>{sL}</div></td>;
+                      
+                      const isIssueCol = col.i === 3;
+                      return (
+                        <td 
+                          key={cidx} 
+                          className={`px-8 py-6 text-[0.75rem] text-slate-600 font-bold ${
+                            isIssueCol 
+                              ? 'whitespace-normal break-words min-w-[300px] max-w-[450px] leading-relaxed' 
+                              : 'max-w-[200px] truncate'
+                          }`}
+                        >
+                          {row[col.i] || '-'}
+                        </td>
+                      );
                     })}
                   </tr>
                 );
@@ -381,7 +429,11 @@ export default function App() {
 
         <footer className="px-12 py-4 border-t border-slate-50 flex justify-between items-center bg-white">
           <button disabled={currentPage <= 1} onClick={() => setCurrentPage(p => p - 1)} className="px-4 py-2 bg-slate-50 text-slate-400 font-black text-[0.65rem] uppercase tracking-widest rounded-xl disabled:opacity-20">Prev</button>
-          <span className="text-[0.85rem] font-bold text-slate-800 tracking-[0.2em]">{currentPage} / {totalPages}</span>
+          <div className="flex items-center gap-6">
+            <span className="text-[0.85rem] font-bold text-slate-800 tracking-[0.2em]">{currentPage} / {totalPages}</span>
+            <div className="h-4 w-px bg-slate-100 hidden sm:block"></div>
+            <span className="hidden sm:block text-[0.6rem] font-black text-slate-300 uppercase tracking-widest">Total: {filteredData.length} Records</span>
+          </div>
           <button disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)} className="px-4 py-2 bg-slate-50 text-slate-400 font-black text-[0.65rem] uppercase tracking-widest rounded-xl disabled:opacity-20">Next</button>
         </footer>
 
@@ -418,7 +470,7 @@ export default function App() {
                   <button 
                     disabled={!ticketForm.issueQuery.trim()}
                     onClick={handleRaiseTicket}
-                    className="w-full py-6 bg-slate-900 hover:bg-black text-white font-black rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-3 tracking-[0.2em] text-[0.7rem] uppercase active:scale-95 disabled:opacity-20 disabled:pointer-events-none"
+                    className="w-full py-6 bg-slate-900 hover:bg-black text-white font-bold rounded-[1.5rem] shadow-xl transition-all flex items-center justify-center gap-3 tracking-[0.2em] text-[0.7rem] uppercase active:scale-95 disabled:opacity-20 disabled:pointer-events-none"
                   >
                     SEND TICKET
                     <Send size={18} />

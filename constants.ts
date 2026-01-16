@@ -16,18 +16,22 @@ export const ADMIN_COLS: ColumnDef[] = [
   { l: "Received By", i: 1 },
   { l: "Client Name", i: 2 },
   { l: "Expected Date", i: 5 },
-  { l: "Serial Key", i: 6 },
+  { l: "Ticket No", i: 6 },
   { l: "Issue / Query", i: 3 },
   { l: "Doer", i: 7 },
   { l: "Current status", i: -2 }, 
-  { l: "Track", i: -1 }
+  { l: "Track", i: -1 },
+  { l: "Re-Open", i: -3 }
 ];
 
 export const USER_COLS: ColumnDef[] = [
   { l: "Ticket Raised", i: 0 },
+  { l: "Ticket No", i: 6 },
   { l: "Expected Date", i: 5 },
   { l: "Issue / Query", i: 3 },
-  { l: "Current status", i: -2 }
+  { l: "Current status", i: -2 },
+  { l: "Track", i: -1 },
+  { l: "Re-Open", i: -3 }
 ];
 
 export const STEPS: Step[] = [

@@ -30,7 +30,6 @@ export const USER_COLS: ColumnDef[] = [
   { l: "Expected Date", i: 5 },
   { l: "Issue / Query", i: 3 },
   { l: "Current status", i: -2 },
-  { l: "Track", i: -1 },
   { l: "Re-Open", i: -3 }
 ];
 

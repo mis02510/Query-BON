@@ -33,7 +33,8 @@ import {
   LayoutGrid,
   RotateCcw,
   History,
-  FileWarning
+  FileWarning,
+  Users
 } from 'lucide-react';
 
 // --- Shared UI Components ---
@@ -98,6 +99,7 @@ export default function App() {
   const [isReopenModalOpen, setIsReopenModalOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [clientFilter, setClientFilter] = useState('ALL');
   const [lastUpdated, setLastUpdated] = useState<string>('');
   
   // Re-open Workflow State
@@ -151,6 +153,7 @@ export default function App() {
         const client = (r[2] || "").trim().toLowerCase();
         const issue = (r[3] || "").toLowerCase();
         if (!client || issue.includes("test")) return false;
+        // Strict mapping: Admin sees all (initially), others see only their specific client name
         return u.isAdmin || client === u.name.toLowerCase();
       });
       setData(filtered);
@@ -182,6 +185,7 @@ export default function App() {
       const found = users.slice(1).find(u => u[0].toLowerCase() === loginForm.name.toLowerCase() && u[1] === loginForm.key);
       if (found) {
         const u = { name: loginForm.name, isAdmin: loginForm.name.toUpperCase() === 'ADMIN' };
+        setClientFilter('ALL'); // Reset filter on login
         setUser(u);
         localStorage.setItem('qc_user', JSON.stringify(u));
         setLoginError(false);
@@ -194,6 +198,7 @@ export default function App() {
     setUser(null);
     setData([]);
     setLoginForm({ name: '', key: '' });
+    setClientFilter('ALL'); // Reset filter on logout
     setShowLogoutConfirm(false);
   };
 
@@ -241,12 +246,31 @@ export default function App() {
     } catch (e) { alert("Error re-opening ticket"); } finally { setIsSubmittingReopen(false); }
   };
 
+  // Extract unique clients for filter dropdown
+  const uniqueClients = useMemo(() => {
+    const clients = new Set<string>();
+    data.forEach(row => {
+      const clientName = (row[2] || '').trim();
+      if (clientName) clients.add(clientName);
+    });
+    return Array.from(clients).sort();
+  }, [data]);
+
   const filteredData = useMemo(() => {
     let result = [...data];
+    
+    // Client Filter: Only applied if explicitly selected and user is Admin
+    // For regular users, result is already pre-filtered to their identity in fetchData
+    if (user?.isAdmin && clientFilter !== 'ALL') {
+      result = result.filter(row => (row[2] || '').trim() === clientFilter);
+    }
+
+    // Search Query
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(row => row.some(cell => cell.toLowerCase().includes(q)));
     }
+
     result.sort((a, b) => {
       const statusA = getMilestoneStatus(a);
       const statusB = getMilestoneStatus(b);
@@ -262,7 +286,7 @@ export default function App() {
       return dateB - dateA;
     });
     return result;
-  }, [data, searchQuery, getMilestoneStatus]);
+  }, [data, searchQuery, clientFilter, getMilestoneStatus, user]);
 
   const paginatedData = useMemo(() => filteredData.slice((currentPage - 1) * ROWS_PER_PAGE, currentPage * ROWS_PER_PAGE), [filteredData, currentPage]);
   const totalPages = Math.ceil(filteredData.length / ROWS_PER_PAGE) || 1;
@@ -307,9 +331,29 @@ export default function App() {
           <div className="flex items-center gap-3">
             <button onClick={() => setIsTicketModalOpen(true)} className="flex items-center gap-2 px-6 py-3.5 bg-sky-500 text-white font-black rounded-xl shadow-lg hover:bg-sky-600 transition-all text-[0.65rem] tracking-widest uppercase"><PlusCircle size={18} /> Raise Ticket</button>
             
+            {/* Client Dropdown Filter (Admin Only) */}
+            {user.isAdmin && (
+              <div className="relative group ml-2">
+                <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
+                <select 
+                  value={clientFilter} 
+                  onChange={e => { setClientFilter(e.target.value); setCurrentPage(1); }}
+                  className="pl-11 pr-8 py-3 bg-slate-50 border border-slate-100 rounded-xl text-xs font-black uppercase tracking-widest w-[180px] appearance-none focus:outline-none focus:ring-2 focus:ring-sky-500/20 transition-all cursor-pointer text-slate-600"
+                >
+                  <option value="ALL">All Clients</option>
+                  {uniqueClients.map(client => (
+                    <option key={client} value={client}>{client}</option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-300">
+                  <ChevronRight className="rotate-90" size={14} />
+                </div>
+              </div>
+            )}
+
             <div className="relative group hidden sm:block ml-2">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
-              <input type="text" placeholder="Filter..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="pl-11 pr-4 py-3 bg-slate-50 border rounded-xl text-xs font-bold w-[160px]" />
+              <input type="text" placeholder="Search..." value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="pl-11 pr-4 py-3 bg-slate-50 border rounded-xl text-xs font-bold w-[160px] focus:outline-none focus:ring-2 focus:ring-sky-500/20 transition-all" />
             </div>
 
             <div className="flex items-center gap-3 bg-slate-50 px-5 py-3 rounded-2xl border border-slate-100 ml-2">
